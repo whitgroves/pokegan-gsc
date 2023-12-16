@@ -1,0 +1,9 @@
+# hidden folders
+__*__/
+.*/
+
+# hidden files
+.*
+
+# exceptions
+!.gitignore
