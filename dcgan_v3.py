@@ -11,10 +11,10 @@ if len(tf.config.list_physical_devices('GPU')) > 0:
 from IPython import display
 
 IMG_CHANNELS = 4 # rgba
-IMG_SCALE = 128
-BATCH_SIZE = 256 # default = 32
+IMG_SCALE = 128 # 256 causes OOM
+BATCH_SIZE = 64 # default = 32; 256 causes OOM
 NOISE_DIM = 100
-CONV_KERNEL =  (5, 5)
+CONV_KERNEL = (5, 5)
 EPOCHS = 50
 
 def load_dataset(image_dir:str|os.PathLike) -> tf.data.Dataset:
@@ -101,8 +101,9 @@ def train_step(generator:Sequential, discriminator:Sequential, images:tf.Tensor)
 def generate_and_save_images(generator:Sequential, label:str) -> None:
     out_dir = '.generated/'
     if not os.path.exists(out_dir): os.makedirs(out_dir)
+    display.clear_output(wait=True)
     images = generator(tf.random.normal([16, NOISE_DIM]), training=False)
-    _ = plt.figure(figsize=(4, 4)) # TODO: genrate plot dims based on N_SAMPLES
+    _ = plt.figure(figsize=(4, 4)) # TODO: genrate plot dims based on number of samples
     for i in range(images.shape[0]):
         plt.subplot(4, 4, i+1)
         plt.imshow(images[i, :, :, 0] * IMG_SCALE)
@@ -110,15 +111,21 @@ def generate_and_save_images(generator:Sequential, label:str) -> None:
     plt.savefig(f'{out_dir}{label}.png')
     plt.show()
 
-def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Dataset) -> None:
-    for epoch in range(EPOCHS):
-        msg = f'Epoch {epoch+1}/{EPOCHS}:'
+def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Dataset, epochs:int=EPOCHS) -> None:
+    start = time.time()
+    checkpoint = make_checkpoint(generator, discriminator)
+    checkpoint_dir = '.model_checkpoints/'
+    try: checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir)).assert_existing_objects_matched()
+    except Exception as e: print(f'WARN: {e}')
+    for epoch in range(epochs):
+        msg = f'Epoch {epoch+1}/{epochs}:'
         print(f'{msg} Training...', end='\r')
-        start = time.time()
-        for batch in dataset:
-            train_step(generator, discriminator, batch)
-        display.clear_output(wait=True)
+        _start = time.time()
+        for batch in dataset: train_step(generator, discriminator, batch)
         generate_and_save_images(generator, epoch)
-        if epoch % 10 == 0: make_checkpoint(generator, discriminator).save('.tf_checkpoints/')
-        print(f'{msg} Complete in {time.time()-start:.1f}s')
+        if epoch % (EPOCHS // 10) == 0:
+            print(f'{msg} Saving checkpoint...', end='\r')
+            checkpoint.save(checkpoint_dir) # save every 10%
+        print(f'{msg} Complete in {time.time()-_start:.1f}s')
     generate_and_save_images(generator, 'final')
+    print(f'{EPOCHS} epochs completed in {time.time()-start:.1f}s')
