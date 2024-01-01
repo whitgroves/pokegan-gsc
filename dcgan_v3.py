@@ -115,6 +115,7 @@ def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Datase
     start = time.time()
     checkpoint = make_checkpoint(generator, discriminator)
     checkpoint_dir = '.model_checkpoints/'
+    checkpoint_mgr = tf.train.CheckpointManager(checkpoint, checkpoint_dir, max_to_keep=3) # checkpoints are large files
     try: checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir)).assert_existing_objects_matched()
     except Exception as e: print(f'WARN: {e}')
     for epoch in range(epochs):
@@ -123,9 +124,7 @@ def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Datase
         _start = time.time()
         for batch in dataset: train_step(generator, discriminator, batch)
         generate_and_save_images(generator, epoch)
-        if epoch % (epochs // 10) == 0:
-            print(f'{msg} Saving checkpoint...', end='\r')
-            checkpoint.save(checkpoint_dir) # save every 10%
+        if epoch % (epochs // 10) == 0: checkpoint_mgr.save() # save every 10%
         print(f'{msg} Complete in {time.time()-_start:.1f}s')
     generate_and_save_images(generator, 'final')
     print(f'{epochs} epochs completed in {time.time()-start:.1f}s')
