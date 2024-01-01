@@ -15,7 +15,6 @@ IMG_SCALE = 128 # 256 causes OOM
 BATCH_SIZE = 64 # default = 32; 256 causes OOM
 NOISE_DIM = 100
 CONV_KERNEL = (5, 5)
-EPOCHS = 50
 
 def load_dataset(image_dir:str|os.PathLike) -> tf.data.Dataset:
     dataset = preprocessing.image_dataset_from_directory(image_dir, label_mode=None,
@@ -28,7 +27,7 @@ def load_dataset(image_dir:str|os.PathLike) -> tf.data.Dataset:
 # wraps tf.data.Dataset since it doesn't seem to work with indexing or next()
 def get_sample(dataset:tf.data.Dataset, display:bool=True) -> np.ndarray:
     for image in dataset:
-        image = (image.numpy() * 255).astype("uint8")[0] # [0, 1] -> [0, 255]
+        image = (image[0].numpy() * 255).astype("uint8") # [0, 1] -> [0, 255]
         if display:
             plt.axis('off')
             plt.imshow(image)
@@ -48,7 +47,8 @@ def make_generator() -> Sequential:
         layers.Conv2DTranspose(64 * IMG_CHANNELS, CONV_KERNEL, strides=(2, 2), padding='same', use_bias=False),
         layers.BatchNormalization(),
         layers.LeakyReLU(),
-        layers.Conv2DTranspose(IMG_CHANNELS, CONV_KERNEL, strides=(2, 2), padding='same', use_bias=False, activation='tanh')
+        layers.Conv2DTranspose(IMG_CHANNELS, CONV_KERNEL, strides=(2, 2), padding='same', use_bias=False,
+                               activation='sigmoid') # activation switched to sigmoid so output is already [0, 1]
     ])
     assert model.output_shape == (None, IMG_SCALE, IMG_SCALE, IMG_CHANNELS)
     return model
@@ -106,12 +106,12 @@ def generate_and_save_images(generator:Sequential, label:str) -> None:
     _ = plt.figure(figsize=(4, 4)) # TODO: genrate plot dims based on number of samples
     for i in range(images.shape[0]):
         plt.subplot(4, 4, i+1)
-        plt.imshow(images[i, :, :, 0] * IMG_SCALE)
+        plt.imshow((images[i].numpy() * 255).astype('uint8'))
         plt.axis('off')
     plt.savefig(f'{out_dir}{label}.png')
     plt.show()
 
-def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Dataset, epochs:int=EPOCHS) -> None:
+def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Dataset, epochs:int=50) -> None:
     start = time.time()
     checkpoint = make_checkpoint(generator, discriminator)
     checkpoint_dir = '.model_checkpoints/'
@@ -123,9 +123,9 @@ def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Datase
         _start = time.time()
         for batch in dataset: train_step(generator, discriminator, batch)
         generate_and_save_images(generator, epoch)
-        if epoch % (EPOCHS // 10) == 0:
+        if epoch % (epochs // 10) == 0:
             print(f'{msg} Saving checkpoint...', end='\r')
             checkpoint.save(checkpoint_dir) # save every 10%
         print(f'{msg} Complete in {time.time()-_start:.1f}s')
     generate_and_save_images(generator, 'final')
-    print(f'{EPOCHS} epochs completed in {time.time()-start:.1f}s')
+    print(f'{epochs} epochs completed in {time.time()-start:.1f}s')
