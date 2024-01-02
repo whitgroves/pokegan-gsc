@@ -117,7 +117,7 @@ def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Datase
     start = time.time()
     checkpoint = make_checkpoint(generator, discriminator)
     checkpoint_dir = '.model_checkpoints/'
-    checkpoint_mgr = tf.train.CheckpointManager(checkpoint, checkpoint_dir, max_to_keep=3) # checkpoints are large files
+    checkpoint_mgr = tf.train.CheckpointManager(checkpoint, checkpoint_dir, max_to_keep=3) # checkpoints are large (>1GB)
     try: checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir)).assert_existing_objects_matched()
     except Exception as e: print(f'WARN: {e}')
     for epoch in range(epochs):
