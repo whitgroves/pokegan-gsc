@@ -55,14 +55,16 @@ def make_generator() -> Sequential:
 
 def make_discriminator() -> Sequential:
     model = Sequential([
-        layers.Conv2D(64 * IMG_CHANNELS, CONV_KERNEL, strides=(2, 2), padding='same', input_shape=[IMG_SCALE, IMG_SCALE, IMG_CHANNELS]),
+        layers.Conv2D(64 * IMG_CHANNELS, CONV_KERNEL, strides=(2, 2), padding='same',
+                      input_shape=[IMG_SCALE, IMG_SCALE, IMG_CHANNELS]),
         layers.LeakyReLU(),
         layers.Dropout(0.3),
         layers.Conv2D(128 * IMG_CHANNELS, CONV_KERNEL, strides=(2, 2), padding='same'),
         layers.LeakyReLU(),
         layers.Dropout(0.3),
         layers.Flatten(),
-        layers.Dense(1)
+        layers.Dense(6, activation='relu'),
+        layers.Dense(1, activation='sigmoid')
     ])
     return model
 
@@ -108,7 +110,7 @@ def generate_and_save_images(generator:Sequential, label:str) -> None:
         plt.subplot(4, 4, i+1)
         plt.imshow((images[i].numpy() * 255).astype('uint8'))
         plt.axis('off')
-    plt.savefig(f'{out_dir}{label}.png')
+    plt.savefig(f'{out_dir}{label}_{int(time.time())}.png')
     plt.show()
 
 def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Dataset, epochs:int=50) -> None:
@@ -124,7 +126,7 @@ def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Datase
         _start = time.time()
         for batch in dataset: train_step(generator, discriminator, batch)
         generate_and_save_images(generator, epoch)
-        if epoch % (epochs // 10) == 0: checkpoint_mgr.save() # save every 10%
+        if epoch > 0 and epoch % 10 == 0: checkpoint_mgr.save() # save every 10 epochs
         print(f'{msg} Complete in {time.time()-_start:.1f}s')
     generate_and_save_images(generator, 'final')
     print(f'{epochs} epochs completed in {time.time()-start:.1f}s')
