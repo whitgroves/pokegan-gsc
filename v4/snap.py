@@ -45,10 +45,15 @@ def get_sprites(dex_list:os.PathLike, save_root:os.PathLike) -> None:
         save_dir = os.path.join(save_root, f'gen{gen}')
         if not os.path.exists(save_dir): os.makedirs(save_dir)
         cached = os.listdir(save_dir)
+        skip_filter = ['sprf_', 'o-', 'o_', 'md__', 'ico_', 'b_']
+        n_skipped = 0
         n_cached = 0
         n_saved = 0
         for url in image_urls:
             file_name = url.split("/")[-1]
+            if any(file_name.startswith(x) for x in skip_filter):
+                n_skipped += 1
+                continue
             if file_name in cached: # waste not, want not
                 n_cached += 1
                 continue 
@@ -56,9 +61,9 @@ def get_sprites(dex_list:os.PathLike, save_root:os.PathLike) -> None:
             with open(f'{save_dir}/{file_name}', 'wb') as file:
                 file.write(image)
                 n_saved += 1
-        print(f'Saved {n_saved} sprites for {label} in {save_dir} ({n_cached} cached)')
+        print(f'Saved {n_saved} sprites for {label} in {save_dir} ({n_cached} cached) ({n_skipped} skipped)')
         n_images += n_cached + n_saved
-    print(f'Fetch complete. Total sprites found: {n_images}')
+    print(f'Fetch complete. Total sprites on disk: {n_images}')
 
 if __name__ == '__main__':
     get_sprites('v4/pokedex.txt', 'v4/.data/')
