@@ -2,7 +2,7 @@ import os
 import requests
 import bs4
 
-def get_sprites(dex_list:os.PathLike, save_root:os.PathLike) -> None:
+def get_images(dex_list:os.PathLike, save_root:os.PathLike) -> None:
     # listings are in the "000_namelower" format, with special characters removed/replaced
     # once again, thanks to https://www.dragonflycave.com/resources/pokemon-list-generator
     with open(dex_list, encoding='utf-8') as file:
@@ -33,19 +33,19 @@ def get_sprites(dex_list:os.PathLike, save_root:os.PathLike) -> None:
         elif num > 0: gen = 1
         else: raise ValueError('MissingNo.')
         label = f'{num:03} {name}'
-        print(f'Fetching sprites for {label}...'+' '*16, end='\r')
+        print(f'Fetching images for {label}...'+' '*16, end='\r')
         res = requests.get(f'{base_url}/en/index.php?id=sprites/{num:03}')
         if res.status_code != 200:
             print(f'Skipped fetch for {label}: Bad Response: {res}')
             continue
         soup = bs4.BeautifulSoup(res.content, 'html.parser')
         image_urls = [image.attrs.get('src').replace('..', base_url)
-                for image in soup.find_all('img', attrs={'alt': f'#{num:03}'})]
+                  for image in soup.find_all('img', attrs={'alt': f'#{num:03}'})]
         image_urls = list(filter(lambda url: url[-4:] == '.png', image_urls)) # no GIFs
         save_dir = os.path.join(save_root, f'gen{gen}')
         if not os.path.exists(save_dir): os.makedirs(save_dir)
         cached = os.listdir(save_dir)
-        skip_filter = ['sprf_', 'o-', 'o_', 'md__', 'ico_', 'b_']
+        skip_filter = ['sprf_', 'o-', 'o_', 'md__', 'ico_', 'b_', 'box_', 'mod_'] # back sprites, etc.
         n_skipped = 0
         n_cached = 0
         n_saved = 0
@@ -57,13 +57,13 @@ def get_sprites(dex_list:os.PathLike, save_root:os.PathLike) -> None:
             if file_name in cached: # waste not, want not
                 n_cached += 1
                 continue 
-            image = requests.get(url).content
+            image = requests.get(url, stream=True).content
             with open(f'{save_dir}/{file_name}', 'wb') as file:
                 file.write(image)
                 n_saved += 1
-        print(f'Saved {n_saved} sprites for {label} in {save_dir} ({n_cached} cached) ({n_skipped} skipped)')
+        print(f'Saved {n_saved} images for {label} in {save_dir} ({n_cached} cached) ({n_skipped} skipped)')
         n_images += n_cached + n_saved
-    print(f'Fetch complete. Total sprites on disk: {n_images}')
+    print(f'Fetch complete. Total images on disk: {n_images}')
 
 if __name__ == '__main__':
-    get_sprites('v4/pokedex.txt', 'v4/.data/')
+    get_images('v4/pokedex.txt', 'v4/.data/')
