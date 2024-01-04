@@ -1,16 +1,7 @@
-# TODO's:
-#   - https://www.kaggle.com/code/cybersimar08/dcgan-face-generation
-#   - line/edge detection in discriminator
-#   - more sophisticated training loop
-#       - k-folds 
-#       - random sampling
-#       - error score tracking/reporting
-#   - ensembles
-#       - generator: one for each RGBA channel
-#       - discriminator: selective voting ensemble
-
+# Special thanks: https://www.kaggle.com/code/cybersimar08/generate-realistic-human-face-using-gan
 import os
 import time
+import numpy as np
 import matplotlib.pyplot as plt
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # ignore bugged CUDA errors; must precede tf import
 import tensorflow as tf
@@ -22,9 +13,9 @@ else: raise SystemError('No GPU detected. Please reload NVIDIA kernel.') # CPU o
 keras.utils.set_random_seed(1996)
 from IPython import display
 
-IMG_CHANNELS = 3 # rgb; transparency broke some images
+IMG_CHANNELS = 4 # 3 = rgb, 4 = rgba (breaks gen 1-2 sprites?)
 IMG_SCALE = 128 # 256 causes OOM
-BATCH_SIZE = 32 # default = 32; 64 caused OOM
+BATCH_SIZE = 16 # default = 32; 64 caused OOM
 NOISE_DIM = 151
 
 def load_dataset(image_dir:str|os.PathLike) -> tf.data.Dataset:
@@ -32,15 +23,18 @@ def load_dataset(image_dir:str|os.PathLike) -> tf.data.Dataset:
                                                  color_mode=('rgba' if IMG_CHANNELS == 4 else 'rgb'),
                                                  image_size=(IMG_SCALE, IMG_SCALE),
                                                  batch_size=BATCH_SIZE)
-    dataset = dataset.map(lambda image : image / 255) # [0, 255] -> [0, 1]
+    dataset = dataset.map(lambda image: image / 255) # [0, 255] -> [0, 1]
     return dataset
 
 # displays a `size` x `size` grid of pictures from `images`
 def display_grid(images:tf.Tensor, size:int=4) -> None:
     for i in range(size**2):
+        image = (images[i].numpy() * 255).astype('uint8') # [0, 1] -> [0, 255]
+        # if len(np.unique(image[:, :, -1])) == 1: image[:, :, -1] = 255 # alpha fix for old sprites
         plt.subplot(size, size, i+1)
-        plt.imshow((images[i].numpy() * 255).astype('uint8')) # [0, 1] -> [0, 255]
+        plt.imshow(image) 
         plt.axis('off')
+        # print(np.unique(image[:, :, -1])) # check alpha channels
 
 # wraps tf.data.Dataset since it doesn't seem to work with indexing or next()
 def get_sample(dataset:tf.data.Dataset, display:bool=True) -> tf.Tensor:
@@ -48,23 +42,11 @@ def get_sample(dataset:tf.data.Dataset, display:bool=True) -> tf.Tensor:
         if display: display_grid(batch)
         yield batch
 
+def get_optimizer() -> optimizers.Optimizer: # can't re-use same instance
+    return optimizers.RMSprop(clipvalue=1, weight_decay=1e-8)
+
 def make_generator() -> Sequential:
     seed_scale = IMG_SCALE // 4 # used for initial dim so final output is correct shape
-    # seed_channels = IMG_CHANNELS * 256 # not actually channels but upscaled to maintain total array size
-    # model = Sequential([
-    #     layers.Dense(seed_scale**2 * seed_channels, use_bias=False, input_shape=(NOISE_DIM,)),
-    #     layers.BatchNormalization(),
-    #     layers.LeakyReLU(),
-    #     layers.Reshape((seed_scale, seed_scale, seed_channels)),
-    #     layers.Conv2DTranspose(128 * IMG_CHANNELS, 5, strides=1, padding='same', use_bias=False),
-    #     layers.BatchNormalization(),
-    #     layers.LeakyReLU(),
-    #     layers.Conv2DTranspose(64 * IMG_CHANNELS, 5, strides=2, padding='same', use_bias=False),
-    #     layers.BatchNormalization(),
-    #     layers.LeakyReLU(),
-    #     layers.Conv2DTranspose(IMG_CHANNELS, 5, strides=2, padding='same', use_bias=False,
-    #                            activation='sigmoid')
-    # ])
     model = Sequential([
         layers.Dense(seed_scale**2 * 128, input_shape=(NOISE_DIM,)),
         layers.LeakyReLU(),
@@ -85,21 +67,10 @@ def make_generator() -> Sequential:
     ])
     if model.output_shape != (None, IMG_SCALE, IMG_SCALE, IMG_CHANNELS):
         raise ValueError(f'Model output has wrong shape: {model.output_shape}')
+    model.compile(get_optimizer(), loss='binary_crossentropy')
     return model
 
 def make_discriminator() -> Sequential:
-    # model = Sequential([
-    #     layers.Conv2D(64 * IMG_CHANNELS, 5, strides=2, padding='same',
-    #                   input_shape=[IMG_SCALE,IMG_SCALE, IMG_CHANNELS]),
-    #     layers.LeakyReLU(),
-    #     layers.Dropout(0.3),
-    #     layers.Conv2D(128 * IMG_CHANNELS, 5, strides=2, padding='same'),
-    #     layers.LeakyReLU(),
-    #     layers.Dropout(0.3),
-    #     layers.Flatten(),
-    #     layers.Dense(6, activation='relu'),
-    #     layers.Dense(1, activation='sigmoid')
-    # ])
     model = Sequential([
         layers.Conv2D(256, 3, input_shape=[IMG_SCALE, IMG_SCALE, IMG_CHANNELS]),
         layers.LeakyReLU(),
@@ -115,10 +86,12 @@ def make_discriminator() -> Sequential:
         layers.Dropout(0.4),
         layers.Dense(1, activation='sigmoid')
     ])
+    model.compile(get_optimizer(), loss='binary_crossentropy')
+    model.trainable = False
     return model
 
 # helper function to compute model loss
-cross_entropy = losses.BinaryCrossentropy() #from_logits=True) <- not needed with sigmoid
+cross_entropy = losses.BinaryCrossentropy() #from_logits=True) # <- not needed with sigmoid
 
 def generator_loss(fake:tf.Tensor) -> tf.Tensor:
     return cross_entropy(tf.ones_like(fake), fake)
@@ -127,8 +100,8 @@ def discriminator_loss(real:tf.Tensor, fake:tf.Tensor) -> tf.Tensor:
     return cross_entropy(tf.ones_like(real), real) + cross_entropy(tf.zeros_like(fake), fake)
 
 # these need to persist
-generator_optimizer = optimizers.RMSprop(clipvalue=1.0, weight_decay=1e-8)
-discriminator_optimizer = optimizers.RMSprop(clipvalue=1.0, weight_decay=1e-8)
+generator_optimizer = get_optimizer()
+discriminator_optimizer = get_optimizer()
 
 def make_checkpoint(generator:Sequential, discriminator:Sequential) -> tf.train.Checkpoint:
     return tf.train.Checkpoint(generator_optimizer=generator_optimizer,
@@ -159,7 +132,7 @@ def generate_and_save_images(generator:Sequential, label:str) -> None:
     plt.show()
 
 def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Dataset, epochs:int=50) -> None:
-    start = time.time()
+    timestamp = time.time()
     checkpoint = make_checkpoint(generator, discriminator)
     checkpoint_dir = '.model_checkpoints/'
     checkpoint_mgr = tf.train.CheckpointManager(checkpoint, checkpoint_dir, max_to_keep=3) # each is >1GB
@@ -168,10 +141,10 @@ def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Datase
     for epoch in range(epochs):
         msg = f'Epoch {epoch+1}/{epochs}:'
         print(f'{msg} Training...', end='\r')
-        _start = time.time()
+        start = time.time()
         for batch in dataset: train_step(generator, discriminator, batch)
-        generate_and_save_images(generator, f'{int(start)}_{epoch}') # start time == run ID
+        generate_and_save_images(generator, f'{int(timestamp)}_{epoch}') # timestamp == run ID
         if epoch > 0 and epoch % 10 == 0: checkpoint_mgr.save() # save every 10 epochs
-        print(f'{msg} Complete in {time.time()-_start:.1f}s')
+        print(f'{msg} Complete in {time.time()-start:.1f}s')
     generate_and_save_images(generator, 'final')
-    print(f'{epochs} epochs completed in {time.time()-start:.1f}s')
+    print(f'{epochs} epochs completed in {time.time()-timestamp:.1f}s')

@@ -1,6 +1,8 @@
 import os
 import requests
 import bs4
+from PIL import Image
+import numpy as np
 
 def get_images(dex_list:os.PathLike, save_root:os.PathLike) -> None:
     # listings are in the "000_namelower" format, with special characters removed/replaced
@@ -64,6 +66,16 @@ def get_images(dex_list:os.PathLike, save_root:os.PathLike) -> None:
         print(f'Saved {n_saved} images for {label} in {save_dir} ({n_cached} cached) ({n_skipped} skipped)')
         n_images += n_cached + n_saved
     print(f'Fetch complete. Total images on disk: {n_images}')
+
+def purge_opaque(image_dir:os.PathLike) -> None:
+    for item in os.scandir(image_dir):
+        if item.is_dir(): purge_opaque(item)
+        else:
+            image = Image.open(item.path)
+            try: np.asarray(image)[:, :, 3] # check for alpha channel
+            except IndexError:              # Error = no transparency
+                os.remove(item.path)
+                print(f'Removed {item.path}')
 
 if __name__ == '__main__':
     get_images('v4/pokedex.txt', 'v4/.data/')
