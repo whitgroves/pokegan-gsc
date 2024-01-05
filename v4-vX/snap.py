@@ -47,13 +47,14 @@ def get_images(dex_list:os.PathLike, save_root:os.PathLike) -> None:
         save_dir = os.path.join(save_root, f'gen{gen}')
         if not os.path.exists(save_dir): os.makedirs(save_dir)
         cached = os.listdir(save_dir)
-        skip_filter = ['sprf_', 'o-', 'o_', 'md__', 'ico_', 'b_', 'box_', 'mod_'] # back sprites, etc.
+        # skip_filter = ['3spr_', 'sprf_', 'o-', 'o_', 'md__', 'ico_', 'b_', 'box_', 'mod_']
         n_skipped = 0
         n_cached = 0
         n_saved = 0
         for url in image_urls:
             file_name = url.split("/")[-1]
-            if any(file_name.startswith(x) for x in skip_filter):
+            # if any(file_name.startswith(x) for x in skip_filter):
+            if not file_name.startswith('art_'):
                 n_skipped += 1
                 continue
             if file_name in cached: # waste not, want not
@@ -67,15 +68,16 @@ def get_images(dex_list:os.PathLike, save_root:os.PathLike) -> None:
         n_images += n_cached + n_saved
     print(f'Fetch complete. Total images on disk: {n_images}')
 
-def purge_opaque(image_dir:os.PathLike) -> None:
+def purge_opaque(image_dir:os.PathLike, dry_run:bool=False, silent:bool=False) -> None:
+    if not silent: print(('Files with broken transparency:' if dry_run else 'Files removed:'))
     for item in os.scandir(image_dir):
-        if item.is_dir(): purge_opaque(item)
+        if item.is_dir(): purge_opaque(item, dry_run=dry_run, silent=True)
         else:
             image = Image.open(item.path)
             try: np.asarray(image)[:, :, 3] # check for alpha channel
             except IndexError:              # Error = no transparency
-                os.remove(item.path)
-                print(f'Removed {item.path}')
+                if not dry_run: os.remove(item.path)
+                print(f'\t{item.path}')
 
 if __name__ == '__main__':
     get_images('v4/pokedex.txt', 'v4/.data/')

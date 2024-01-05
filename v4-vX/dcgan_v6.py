@@ -11,10 +11,10 @@ if len(tf.config.list_physical_devices('GPU')) > 0:
 else: raise SystemError('No GPU detected. Please reload NVIDIA kernel.') # CPU overheats
 keras.utils.set_random_seed(1996)
 
-IMG_CHANNELS = 4 # rgba
+IMG_CHANNELS = 3 # rgb
 IMG_SCALE = 128 # 256 causes OOM
 IMG_SHAPE = [IMG_SCALE, IMG_SCALE, IMG_CHANNELS]
-BATCH_SIZE = 16 # default = 32
+BATCH_SIZE = 32 # default = 32
 NOISE_DIM = 151
 NOISE = tf.random.normal([BATCH_SIZE, NOISE_DIM])
 GRID_SIZE = int(BATCH_SIZE**0.5)
@@ -45,6 +45,10 @@ def get_sample(dataset:tf.data.Dataset, display:bool=True) -> tf.Tensor:
 def get_optimizer() -> optimizers.Optimizer: # can't re-use same instance
     return optimizers.RMSprop(clipvalue=1, weight_decay=1e-8)
 
+# these need to persist
+G_OPTIMIZER = get_optimizer()
+D_OPTIMIZER = get_optimizer()
+
 def make_generator() -> Sequential:
     seed_scale = IMG_SCALE // 4 # used for initial dim so final output is correct shape
     seed_channels = IMG_CHANNELS * 256 # not actually channels but upscaled to maintain total array size
@@ -62,7 +66,7 @@ def make_generator() -> Sequential:
         layers.Conv2DTranspose(IMG_CHANNELS, 5, strides=2, padding='same', use_bias=False, activation='sigmoid')
     ])
     if model.output_shape != (None, *IMG_SHAPE): raise ValueError(f'Wrong output shape: {model.output_shape}')
-    model.compile(get_optimizer(), loss='binary_crossentropy')
+    # model.compile(get_optimizer(), loss='binary_crossentropy')
     return model
 
 def make_discriminator() -> Sequential:
@@ -77,7 +81,7 @@ def make_discriminator() -> Sequential:
         layers.Dense(7, activation='relu'),
         layers.Dense(1, activation='sigmoid')
     ])
-    model.compile(get_optimizer(), loss='binary_crossentropy')
+    # model.compile(get_optimizer(), loss='binary_crossentropy')
     return model
 
 # helper function to compute model loss
@@ -88,10 +92,6 @@ def generator_loss(fake:tf.Tensor) -> tf.Tensor:
 
 def discriminator_loss(real:tf.Tensor, fake:tf.Tensor) -> tf.Tensor:
     return cross_entropy(tf.ones_like(real), real) + cross_entropy(tf.zeros_like(fake), fake)
-
-# these need to persist
-G_OPTIMIZER = get_optimizer()
-D_OPTIMIZER = get_optimizer()
 
 def make_checkpoint(generator:Sequential, discriminator:Sequential) -> tf.train.Checkpoint:
     return tf.train.Checkpoint(generator_optimizer=G_OPTIMIZER,
