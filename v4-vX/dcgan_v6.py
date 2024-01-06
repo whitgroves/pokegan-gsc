@@ -98,6 +98,8 @@ def make_checkpoint(generator:Sequential, discriminator:Sequential) -> tf.train.
                                discriminator_optimizer=D_OPTIMIZER,
                                generator=generator, discriminator=discriminator)
 
+# TODO: create a decorator for time tracking to wrap `train_step` and `train`
+
 @tf.function # auto-compile
 def train_step(generator:Sequential, discriminator:Sequential, images:tf.Tensor) -> None:
     noise = tf.random.normal([BATCH_SIZE, NOISE_DIM])
@@ -124,7 +126,7 @@ def generate_and_save_images(generator:Sequential, label:str) -> None:
 def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Dataset, epochs:int=50) -> None:
     timestamp = time.time()
     checkpoint = make_checkpoint(generator, discriminator)
-    checkpoint_dir = '.v5_checkpoints/'
+    checkpoint_dir = '.v6_checkpoints/'
     checkpoint_mgr = tf.train.CheckpointManager(checkpoint, checkpoint_dir, max_to_keep=3) # each is >1GB
     try: checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir)).assert_existing_objects_matched()
     except Exception as e: print(f'WARN: {e}')
