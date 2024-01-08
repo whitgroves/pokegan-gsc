@@ -1,6 +1,7 @@
 import os
 import time
 from IPython import display
+import typing_extensions as t
 import matplotlib.pyplot as plt
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # ignore bugged CUDA errors; must precede tf import
 import tensorflow as tf
@@ -98,47 +99,51 @@ def make_checkpoint(generator:Sequential, discriminator:Sequential) -> tf.train.
                                discriminator_optimizer=D_OPTIMIZER,
                                generator=generator, discriminator=discriminator)
 
-# TODO: create a decorator for time tracking to wrap `train_step` and `train`
+def track_time(func:t.Callable) -> t.Callable:
+    def _track_time(*args, **kwargs):
+        print(f'Starting {func.__name__}...', end='\r')
+        start = time.time()
+        func(*args, **kwargs)
+        print(f'dcgan_v6.{func.__name__}() completed in {time.time()-start:.1f}s')
+    return _track_time
 
-@tf.function # auto-compile
-def train_step(generator:Sequential, discriminator:Sequential, images:tf.Tensor) -> None:
-    noise = tf.random.normal([BATCH_SIZE, NOISE_DIM])
-    with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        gen_images = generator(noise, training=True)
-        disc_real = discriminator(images, training=True)
-        disc_fake = discriminator(gen_images, training=True)
-        gen_loss = generator_loss(disc_fake)
-        disc_loss = discriminator_loss(disc_real, disc_fake)
-    gen_gradient = gen_tape.gradient(gen_loss, generator.trainable_variables)
-    disc_gradient = disc_tape.gradient(disc_loss, discriminator.trainable_variables)
-    G_OPTIMIZER.apply_gradients(zip(gen_gradient, generator.trainable_variables))
-    D_OPTIMIZER.apply_gradients(zip(disc_gradient, discriminator.trainable_variables))
+@track_time
+@tf.function
+def train_step(generator:Sequential, discriminator:Sequential, dataset:tf.data.Dataset) -> None:
+    for batch in dataset:
+        noise = tf.random.normal([BATCH_SIZE, NOISE_DIM])
+        with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+            gen_images = generator(noise, training=True)
+            disc_real = discriminator(batch, training=True)
+            disc_fake = discriminator(gen_images, training=True)
+            gen_loss = generator_loss(disc_fake)
+            disc_loss = discriminator_loss(disc_real, disc_fake)
+        gen_gradient = gen_tape.gradient(gen_loss, generator.trainable_variables)
+        disc_gradient = disc_tape.gradient(disc_loss, discriminator.trainable_variables)
+        G_OPTIMIZER.apply_gradients(zip(gen_gradient, generator.trainable_variables))
+        D_OPTIMIZER.apply_gradients(zip(disc_gradient, discriminator.trainable_variables))
 
 def generate_and_save_images(generator:Sequential, label:str) -> None:
     out_dir = '.generated/'
     if not os.path.exists(out_dir): os.makedirs(out_dir)
     display.clear_output(wait=True)
-    images = generator(NOISE, training=False)
-    display_grid(images)
+    print(f'Generated Result ({label}):')
+    display_grid(generator(NOISE, training=False))
     plt.savefig(f'{out_dir}{label}.png')
     plt.show()
 
+@track_time
 def train(generator:Sequential, discriminator:Sequential, dataset:tf.data.Dataset, epochs:int=50) -> None:
-    timestamp = time.time()
+    run_id = time.time()
     checkpoint = make_checkpoint(generator, discriminator)
     checkpoint_dir = '.v6_checkpoints/'
     checkpoint_mgr = tf.train.CheckpointManager(checkpoint, checkpoint_dir, max_to_keep=3) # each is >1GB
     try: checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir)).assert_existing_objects_matched()
     except Exception as e: print(f'WARN: {e}')
     for epoch in range(epochs):
-        msg = f'Epoch {epoch+1}/{epochs}:'
-        print(f'{msg} Training...', end='\r')
-        start = time.time()
-        for batch in dataset: train_step(generator, discriminator, batch)
-        generate_and_save_images(generator, f'{int(timestamp)}_{epoch}') # timestamp == run ID
-        if (epoch+1) % 10 == 0: # save every 10 epochs
-            print(f'{msg} Saving...', end='\r')
-            checkpoint_mgr.save() 
-        print(f'{msg} Complete in {time.time()-start:.1f}s')
-    generate_and_save_images(generator, 'final')
-    print(f'{epochs} epochs completed in {time.time()-timestamp:.1f}s')
+        print(f'Epoch {epoch+1}/{epochs}:')
+        train_step(generator, discriminator, dataset)
+        generate_and_save_images(generator, f'{int(run_id)}_{epoch}')
+        if (epoch+1) % 10 == 0: checkpoint_mgr.save() # save every 10 epochs
+        if (epoch+1) < epochs: print(f'Epoch {epoch+2}/{epochs}:', end='\r')
+    generate_and_save_images(generator, f'{int(run_id)}_final')
